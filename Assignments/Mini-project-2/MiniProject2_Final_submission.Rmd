@@ -1,0 +1,578 @@
+---
+title: "Swing Voters"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F)
+library(tidyverse)
+library(arm)
+library(MASS)
+library(ggmosaic)
+cb_palette = c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "black")
+```
+
+### Introduction
+This is survey data collected by the thinktank data for progress that represents the registered population of people who 2018 mid-term elections. There are two types of variables of out interest, first, `issue` variables, which has six different issues and people has responded on scale of 1 to 5, 1 being strongly supporting and 5 being strongly opposing. The second variables of interest are `populism` variables, which has three sub-categories. We try to study the `Swing Voters` and what variables determines being a swing voter from this data set. We start with the visual comparison, figure 1, of two types of swing voter, one, who swinged to Republican ( to R) and another, who swinged to Democrat ( to D)
+
+```{r, message=FALSE, warning=FALSE}
+# Loading the data.
+DFP = read_csv("DFP_WTHH_release.csv")
+DFP = as_tibble(DFP)
+# separating by topics
+basic.variables = DFP[c("presvote16post", "house3", "weight_DFP")]
+issue.variables = DFP[c("M4A", "GREENJOB", "WEALTH", "MARLEG", "ICE", "GUNS")]
+populism.variables = DFP[c("POP_1", "POP_2", "POP_3")]
+complete.DFP = data.frame(basic.variables, populism.variables, issue.variables)
+
+# all variables together
+DFP.populism = data.frame(basic.variables, populism.variables)
+DFP.issue = data.frame(basic.variables, issue.variables)
+
+# Swing voter calculation
+loyalDemocrat = (DFP.issue$presvote16post == 1 & DFP.issue$house3 == 1)
+loyalRepublican = (DFP.issue$presvote16post ==2 & DFP.issue$house3 ==2)
+swing.voter = ((!loyalDemocrat) & (!loyalRepublican))
+
+# swing to D and swing to R calculation
+toDemocrat = (DFP.issue$presvote16post != 1 & DFP.issue$house3 == 1)
+toRepublican = (DFP.issue$presvote16post !=2 & DFP.issue$house3 ==2)
+swing.DR = (toDemocrat | toRepublican)
+
+# forming data frames for each type
+toDemocrat.df = DFP.issue[(DFP.issue$presvote16post != 1 & DFP.issue$house3 == 1),]
+toRepublican.df = DFP.issue[(DFP.issue$presvote16post !=2 & DFP.issue$house3 ==2),]
+swing.voter.df = DFP.issue[swing.DR,]
+
+# converting to binary response
+swing.voter.df$house3 = swing.voter.df$house3 - 1
+# taking out only issue variables
+swing.voter.issue = swing.voter.df[,1:9]
+# converting into longer form using pivot longer
+swing.long = swing.voter.issue %>% 
+  pivot_longer(c("M4A", "GREENJOB", "WEALTH", "MARLEG", "ICE", "GUNS"), names_to = "issues", values_to = "response")
+# drop all NAs 
+swing.long = drop_na(swing.long)
+# drop sub-category 6
+swing.long = swing.long[swing.long$response <= 5,]
+
+# for more informative plot
+issues.proportion = group_by(swing.long, response, issues) %>%
+  summarise(proportion = weighted.mean(house3, w = weight_DFP, na.rm = TRUE))
+# removing "not sure" category
+issues.proportion = issues.proportion[issues.proportion$response <=5,]
+```
+
+
+```{r,fig.height=6, fig.width= 10}
+## Question 1
+
+swing.long$house3 = recode_factor(swing.long$house3, `0` = "To D", `1` = "To R")
+
+# plot
+ggplot(swing.long, aes(x = response, y = house3, color = house3)) + 
+  geom_jitter(height = 0.2, width = 0.3, size = 0.5, alpha = 0.7) + 
+  facet_wrap(~issues, ncol=2) + 
+  labs(title = "Visual comparison of swing to D and swing to R",
+      subtitle = "For each response scale in issue variables",
+      caption = "Figure 1: Visual comparison of swing to Democrats and swing to Republican voters" ) +
+  xlab("Response of voters in each sub-category") + 
+  ylab("") +
+  theme(axis.text=element_text(size=10, face = "bold"),
+    plot.title = element_text(color="black", size=14, face="bold"),
+    plot.subtitle = element_text(color="black", size=10),
+    axis.title=element_text(size=8, face = "bold"),
+    plot.caption = element_text(hjust = 0.5, size = 8)) + 
+  scale_color_manual(values = cb_palette) + 
+  theme(legend.position = "none") 
+```
+
+On visual comparison between the number of voters who has switched to Democrat (To D) and those who has switched to Republican (To R), we see that in most of the issue variables there are not much voters who have given scale values of 3 and 4 for either case. This makes one thing clear that swing voters are highly influenced by supporting and opposing various issues. A close observation of the plot in figure 1 shows that there is a larger concerntration of voters for Democrates on issue variables like `Wealth`, `Greenjob`, `Guns` and `M4A` in category of strong support (label 1), and the corresponsing number of voters for Republicans in these variables are very less for strong support category. Based on this, it can be concluded that strong supported of `wealth`, `greenjob`, `guns` and `medicare for all` swing towards Democrats. Similarly, the swing voters to Republicans are those who strongly opposed issues like `ICE` and `M4A.` Republican swingers are more or less equally distributed across all scales for `Wealth.`  
+A more clear observation can be made from weighted plot (figure 2) below, which clearly shows that there are two most important scale values that drives the swing voters i.e. category 1 and 5.If a voter either strongly oppose of strongly support some issue variables then they are likely to be swing voters, though this might 
+
+```{r, fig.width= 9}
+ggplot(issues.proportion, aes( x = issues, y = proportion, group = response, color = factor(response))) +
+  geom_line() +
+  scale_color_manual(values = cb_palette) +
+  labs(color = "Response") +
+  labs(title = "Switch to D with Switch to R on issue variables",
+       subtitle = "Comparison of same scale across issues variables",
+       caption = "Figure 2: Proportion of swing voters for Republican party for each sub-category of support") +
+  xlab("Issue Variables") +
+  ylab("Republican Proportion") +
+  theme(axis.text=element_text(size=8, face = "bold"),
+    plot.title = element_text(color="black", size=12, face="bold"),
+    plot.subtitle = element_text(color="black", size=10),
+    axis.title=element_text(size=11, face = "bold"),
+    plot.caption = element_text(hjust = 0.5, size = 8))
+```
+
+not be always true. Swing voters who have responded on different issue variables in category 3 and 4 as well, the plot shows that this is not a decisive factor for any of the issue variables, rather we observe that strong supporter of `greenjob`, `wealth`, `medicare for all` and `wealth` are democrats voters and those who oppose these issues are Republican supporters. Issue variables like `Ice` and `MARLEG` are not strongly opposed by even those republican voters who has opposed other issues. This makes `Marleg` and `ice` as not that important issue variables.
+
+```{r}
+# loyal democrat 
+loyal.demeocrat = (DFP.issue$presvote16post == 1 & DFP.issue$house3 == 1)
+#table(loyal.demeocrat, useNA = "ifany")
+# loyal republican 
+loyal.republican = (DFP.issue$presvote16post == 2 & DFP.issue$house3 == 2)
+#loyal voters 
+loyal.voters = (loyal.demeocrat | loyal.republican)
+
+# putting all loyals in data frames 
+loyal.demeocrat.df = DFP.issue[loyal.demeocrat,]
+loyal.republican.df = DFP.issue[loyal.republican,]
+loyal.voters.df = DFP.issue[loyal.voters,]
+
+# converting into binary response of 0 and 1
+loyal.voters.df$house3 = loyal.voters.df$house3 -1 
+
+# taking out only issue variables 
+loyal.voters.issue = loyal.voters.df[,1:9]
+
+# converting into longer form 
+loyal.long = loyal.voters.issue %>% 
+  pivot_longer(c("M4A", "GREENJOB", "WEALTH", "MARLEG", "ICE", "GUNS"), names_to = "issues", values_to = "response")
+
+# drop NA variables 
+loyal.long = drop_na(loyal.long)
+
+# plot for loyal voters 
+# 0: loyal to Democrats   
+# 1: loyal to Republicans  
+# 2: swing voters  
+
+# swing and loyal voters
+loyality = rep(NA, nrow(DFP))
+loyality[swing.voter] = "Swing"
+loyality[loyal.demeocrat] = "Loyal D"
+loyality[loyal.republican] = "Loyal R"
+DFP.issue.loyality = DFP.issue
+DFP.issue.loyality$loyality = loyality
+
+# converting to long form 
+DFP.issue.loyality.long = DFP.issue.loyality %>% 
+  pivot_longer(c("M4A", "GREENJOB", "WEALTH", "MARLEG", "ICE", "GUNS"), names_to = "issues", values_to = "response")
+
+DFP.issue.loyality.long = DFP.issue.loyality.long[DFP.issue.loyality.long$response <= 5,]
+```
+
+
+```{r,fig.height=6, fig.width=10}
+ggplot(drop_na(DFP.issue.loyality.long), aes(x= response, y = loyality, color = loyality)) + 
+  geom_jitter(height =  0.25, width = 0.3, size = 0.4, alpha = 0.7) + 
+  facet_wrap(~issues, ncol=2) +
+  xlab("Response of voters in each sub-category") + 
+  ylab(" ") +
+  labs(title = "Visual comparison of swing voter vs loyal voters",
+      subtitle = "For each response scale in issue variables",
+      caption = "Figure 3: Visual comparison of swing  voter with loyal Republicans and loyal Democrats on various issues") +
+  theme(axis.text=element_text(size=10, face = "bold"),
+    plot.title = element_text(color="black", size=14, face="bold"),
+    plot.subtitle = element_text(color="black", size=10),
+    axis.title=element_text(size=8, face = "bold"),
+    plot.caption = element_text(hjust = 0.5, size = 8)) + 
+  scale_color_manual(values = cb_palette) + 
+  theme(legend.position = "none")
+```
+
+Having explored the pattern in swing voters, we now try to observe what drives loyal voters to stick to there party. Again, we start with the visual comparison for the loyal voters and swing voters, the plot in figure 3 shows the visual comparison of number of swing voters with loyal republicans and loyal democrats. The plot reveals that in some issue variables like `Greenjob`, `Ice`, `marleg` and `M4A` the swing voters follow the pattern of loyal republicans i.e. the number of swing voters are also concentrated highly in those categories in which republicans have higher number. In case of `Guns` issue variables, the swing voters are close to the behavior of loyal Democrats and also in Wealth issue variable, the swing voters are most closely behave like democrats loyalists. One important things to observe it loyal democrats are strong supporter of all these issues except `ICE`, where there are almost equally distributed across all categories. But the same pattern is not seen for loyal Republicans, Republicans strongly oppose `ICE` and `M4A` issues but most of them are on scale 3 for Guns and more or less equally distributed for rest of the variables.
+
+```{r}
+# more informative plots
+# calculation for swing vs loyal democrats
+swing.loyalDemo = rep(NA, nrow(DFP))
+swing.loyalDemo[loyal.demeocrat] = 0
+swing.loyalDemo[swing.voter] = 1
+
+DFP.swing.loyalDemo = DFP.issue
+DFP.swing.loyalDemo$swing.loyalDemo = swing.loyalDemo
+
+# converting to long form 
+DFP.swing.loyalDemo.long = DFP.swing.loyalDemo %>% 
+  pivot_longer(c("M4A", "GREENJOB", "WEALTH", "MARLEG", "ICE", "GUNS"), names_to = "issues", values_to = "response")
+
+# dropping all NA values
+DFP.swing.loyalDemo.long = drop_na(DFP.swing.loyalDemo.long)
+
+# proportion calculation
+swing.loyalDemo.proportion = group_by(DFP.swing.loyalDemo.long, response, issues) %>%
+  summarise(proportion = weighted.mean(swing.loyalDemo, w = weight_DFP, na.rm = TRUE))
+
+# removing not sure category
+swing.loyalDemo.proportion = swing.loyalDemo.proportion[swing.loyalDemo.proportion$response <=5,]
+
+# Calculation for swing vs loyal republicans
+swing.loyalRepub = rep(NA, nrow(DFP))
+swing.loyalRepub[loyal.republican] = 0
+swing.loyalRepub[swing.voter] = 1
+
+DFP.swing.loyalRepub = DFP.issue
+DFP.swing.loyalRepub$swing.loyalRepub = swing.loyalRepub
+
+# converting to long form 
+DFP.swing.loyalRepub.long = DFP.swing.loyalRepub %>% 
+  pivot_longer(c("M4A", "GREENJOB", "WEALTH", "MARLEG", "ICE", "GUNS"), names_to = "issues", values_to = "response")
+
+# dropping all NA values
+DFP.swing.loyalRepub.long = drop_na(DFP.swing.loyalRepub.long)
+
+# proportion calculation
+swing.loyalRepub.proportion = group_by(DFP.swing.loyalRepub.long, response, issues) %>%
+  summarise(proportion = weighted.mean(swing.loyalRepub, w = weight_DFP, na.rm = TRUE))
+
+# removing not sure category
+swing.loyalRepub.proportion = swing.loyalRepub.proportion[swing.loyalRepub.proportion$response <=5,]
+
+```
+
+
+```{r, message=F, warning=F, fig.width= 9}
+# plot Swing vs loyalDemocrats
+ggplot(swing.loyalDemo.proportion, aes( x = issues, y = proportion, group = response, color = factor(response))) +
+  geom_line() +
+  scale_color_manual(values = cb_palette) +
+  labs(color = "Scale") +
+  labs(title = "Swing voters vs. loyal Democrats",
+       subtitle = "Comparison of each scale values across issues",
+       caption = "Figure 4: Proportion of swing voters with loyal Democrats for each sub-category of support") +
+  xlab("Response of voters in each sub-category") +
+  ylab("Swing Voters Proportion") +
+  theme(axis.text=element_text(size=8, face = "bold"),
+    plot.title = element_text(color="black", size=12, face="bold"),
+    plot.subtitle = element_text(color="black", size=10),
+    axis.title=element_text(size=10, face = "bold"),
+    plot.caption = element_text(hjust = 0.5, size = 8))
+```
+
+A more one to one comparison can be mode from weighted plot in figure 4, which shows the proportion of swing voters as compared with loyal democrats for each category of different issue variables. The plot shows that swing voter as compared to loyal democrats are more likely to strongly oppose `greenjob`, `wealth` and `Medicare` for all issue variables which has especially high support among democrats. The proportion of swing voters who strongly oppose `Guns`, `Ice` and `Marleg` are relatively less as on other issues. There is not such an strong opposition by swing voters on Guns issues but there is strong support for this among Democrats.
+
+
+```{r, message=F, warning=F, fig.width= 9}
+# plot Swing vs loyalRepublican
+ggplot(swing.loyalRepub.proportion, aes( x = issues, y = proportion, group = response, color = factor(response))) +
+  geom_line() +
+  scale_color_manual(values = cb_palette) +
+  labs(color = "Scale") +
+  labs(title = "Swing voters vs. loyal Republicans",
+       subtitle = "Comparison of each scale values across issues",
+       caption = "Figure 5: Proportion of swing voters with loyal Republicans for each sub-category of support") +
+  xlab("Response of voters in each sub-category") +
+  ylab("Swing Voters Proportion")+
+  theme(axis.text=element_text(size=8, face = "bold"),
+    plot.title = element_text(color="black", size=12, face="bold"),
+    plot.subtitle = element_text(color="black", size=10),
+    axis.title=element_text(size=10, face = "bold"),
+    plot.caption = element_text(hjust = 0.5, size = 8))
+```
+
+The weighted plot in figure 5 shows the comparison of swing voters with loyal Republicans. It is quite visible from the plot that a larger section of loyal republicans strongly oppose on the issues like `Ice`, `M4A`, `Marleg` and `Wealth`, but that is not the trend which is followed by swing voters. Swing voters strongly support `Guns` and `M4A` issue variables. There is also a very proportion of swing voters who neither strongly support or oppose the issue of `Ice` as compared to loyal republicans. Overall, it can be said that, swing voters think more like Democrats on some issues and more like Republicans on some issues. These patterns can be easily seen from figure 3, 4 and 5.  
+
+### Predicting a swing voter
+For both the models, using only issue variables as the predictor and using only populism variable as predictor, we fitted a GLM model with family `quasibinomial` and used the `weight_DFP` as the weight parameter. We did try a number of combinations for variable interactions but nothing seems to improve the model, so I choose my final model without any interaction terms ( there wasn't any point using more degree of freedom for no improvement in model). Since, we are only interested in knowing the explanatory power of the model, we tested the model on same data with following outcomes.  
+
+**Model with only issue variables as predictor**:   
+:- On calculating the accuracy of prediction with direct classification as `swing` and `non-swing` voters, the model gives around 80.92 percent of accuracy, but this accuracy is deceiving as this model could only classify 2-3 voters as swing voters and classified rest of the voters are non-swing voters. This certainly creates doubts for this type of evaluation for this model.   
+:- then we tried to assess the difference in Probabilities of being a swing voter and being a non-swing voter by averaging the fitted values in two original labels of being swing and non-swing voters. The outcome highlights the weak predictive power of the model.   
+:- The model predicts a 0.2083 probability (on average) for non-swing voters and 0.2296 probability (on average) for being a swing voter. 
+This small difference in the probability values shows that the model has very weak explanatory power. Still we tried to capture an average pattern of this model for each variables, which contributed in predicting a swing voter. This is shown in figure 6 below.
+
+```{r}
+# data preparation
+response.variable = rep(1, nrow(DFP.issue))
+#response.variable[swing.voter] = 1
+response.variable[loyal.demeocrat] = 0
+response.variable[loyal.republican] = 0
+# add column to data frame
+DFP.issue$response.variable = response.variable
+# drop all NAs
+DFP.issue = drop_na(DFP.issue)
+```
+
+
+```{r}
+# model fitting 
+# modelone without interaction
+swing.weight.logit1 = glm(response.variable ~ M4A + GREENJOB + GUNS + ICE + MARLEG + WEALTH, 
+                          family = quasibinomial,
+                          weights = weight_DFP,
+                          data = DFP.issue)
+# display(swing.weight.logit1)
+
+# performance check of model 
+model.check = DFP.issue
+model.pred.response  = predict(swing.weight.logit1, newdata = model.check, type = "response")
+model.pred.df = data.frame(model.check, pred.response = as.vector(model.pred.response))
+model.pred.bn = ifelse(model.pred.response >= 0.5, 1, 0)
+model.pred.df = data.frame(model.pred.df, prediction = as.vector(model.pred.bn))
+
+# model performance in binary 
+model.performance = ifelse(model.pred.df$response.variable == model.pred.df$prediction, 1, 0)
+model.pred.df$model.performance = model.performance
+
+# accuracy
+# (sum(model.pred.df$model.performance) / nrow(model.pred.df))*100
+
+## difference in swing and non-swing prediction probability 
+prob.diff = model.pred.df[c("response.variable", "pred.response")]
+prob.diff.summary = prob.diff %>% 
+  group_by(response.variable) %>% 
+  summarise(avg.prob = mean(pred.response))
+# prob.diff.summary
+```
+
+```{r}
+# making grid to observe the performance of the model 
+issue.grid = expand.grid( M4A = seq(1,5,1), GREENJOB = seq(1,5,1), ICE = seq(1,5,1), GUNS = seq(1,5,1), WEALTH = seq(1,5,1), MARLEG = seq(1,5,1))
+issue.grid.pred = predict(swing.weight.logit1, newdata = issue.grid, type = "response") # 
+issue.grid.df = data.frame(issue.grid, switch.prob = as.vector(issue.grid.pred)) 
+
+# convert the grid into longer form
+issues.grid.longer = issue.grid.df %>% 
+  pivot_longer(c("M4A", "GREENJOB", "WEALTH", "MARLEG", "ICE", "GUNS"), names_to = "issues", values_to = "response")
+
+# proportion calculation
+issues.grid.longer.proportion = group_by(issues.grid.longer, response, issues) %>%
+  summarise(proportion = mean(switch.prob))
+```
+
+```{r, message=F, warning=F, fig.width=9, fig.height=5}
+# plot
+ggplot( issues.grid.longer, aes( x = response, y = switch.prob, color = issues)) +
+  facet_wrap(~issues) +
+  geom_smooth(size = 0.6, method = "loess", method.args = list(degree = 1), se= F)  +
+  xlab("Response of voters on 1 to 5 scale") +
+  ylab("Probability of being swing voter ") +
+  labs(title = "Issue variables model prediction of being a swing voter",
+      subtitle = "For each response scale in issue variables",
+      caption = "Figure 6: A general pattern of model prediction done on a grid.",
+      color = "Issue Variables") +
+  theme(axis.text=element_text(size=8, face = "bold"),
+    plot.title = element_text(color="black", size=12, face="bold"),
+    plot.subtitle = element_text(color="black", size=10),
+    axis.title=element_text(size=10, face = "bold"),
+    plot.caption = element_text(hjust = 0.5, size = 8)) +
+  scale_color_manual(values = cb_palette) +
+  theme(legend.position = "none")
+```
+
+### Model with issue variables
+swing.weight.logit1 = glm(response.variable ~ M4A + GREENJOB + GUNS + ICE + MARLEG + WEALTH, 
+                          family = quasibinomial,
+                          weights = weight_DFP,
+                          data = DFP.issue)
+                          
+This plot is by no mean accurate but this highlights the weakness of this model and some trends with different issue variables. We can observe that, there is no any variable that clearly predict a voter being swing voter, though it captures the general trend of each issue variables. It can be said that voters who opposes `greejob`, `guns` and `wealth` and supports `ice` and `marleg` are more likely to be a swing voter. A general trend is more or less captured here but it would not be advised to use this model for drawing any conclusion as this model has very less explanatory power. 
+
+**Model with only populism variables as predictor**:  
+:- On calculating the accuracy of prediction with direct classification as `swing` and `non-swing` voters, the model gives around 80.66 percent of accuracy, but this accuracy is deceiving as this model could only classify a very-limited voters as swing voters and classified rest of the voters are non-swing voters. This certainly creates doubts for this type of evaluation for this model.   
+:- then we tried to assess the difference in Probabilities of being a swing voter and being a non-swing voter by averaging the fitted values in two original labels of being swing and non-swing voters. The outcome highlights the weak predictive power of the model.
+
+```{r}
+# data preparation
+response.variable = rep(1, nrow(DFP.populism))
+#response.variable[swing.voter] = 1
+response.variable[loyal.demeocrat] = 0
+response.variable[loyal.republican] = 0
+# add column to data frame
+DFP.populism$response.variable = response.variable
+# drop all NAs
+DFP.populism = drop_na(DFP.populism)
+
+
+```
+
+
+
+```{r}
+# model fitting
+swing.weight.logit.pop1 = glm(response.variable ~ POP_1 + POP_2 + POP_3, 
+                              family = quasibinomial, 
+                              weights = weight_DFP, 
+                              data = DFP.populism)
+
+# display(swing.weight.logit.pop2)
+
+# performance check of model 
+model.check = DFP.populism
+model.pred.response  = predict(swing.weight.logit.pop1, newdata = model.check, type = "response")
+model.pred.pop.df1 = data.frame(model.check, pred.response = as.vector(model.pred.response))
+model.pred.bn = ifelse(model.pred.response >= 0.5, 1, 0)
+model.pred.pop.df1 = data.frame(model.pred.pop.df1, prediction = as.vector(model.pred.bn))
+
+# model performance 
+model.performance = ifelse(model.pred.pop.df1$response.variable == model.pred.pop.df1$prediction, 1, 0)
+model.pred.pop.df1$model.performance = model.performance
+
+# accuracy 
+# (sum(model.pred.pop.df1$model.performance) / nrow(model.pred.pop.df1))*100
+
+## difference in swing and non-swing prediction probability 
+prob.diff = model.pred.pop.df1[c("response.variable", "pred.response")]
+prob.diff.summary = prob.diff %>% 
+  group_by(response.variable) %>% 
+  summarise(avg.prob = mean(pred.response))
+# nrow(prob.diff)
+```
+```{r}
+# making grid to observe the performance of the model 
+pop.grid = expand.grid( POP_1 = seq(1,5,1), POP_2 = seq(1, 5, 1), POP_3 = seq(1, 5, 1))
+pop.grid.pred = predict(swing.weight.logit.pop1, newdata = pop.grid, type = "response")
+populism.grid = data.frame(pop.grid, switch.prob = as.vector(pop.grid.pred)) 
+
+# convert the grid into longer form
+populism.grid.longer = populism.grid %>% 
+  pivot_longer(c("POP_1", "POP_2", "POP_3"), names_to = "issues", values_to = "response")
+
+# proportion calculation
+populism.grid.longer.proportion = group_by(populism.grid.longer, response, issues) %>%
+  summarise(proportion = mean(switch.prob))
+
+```
+
+
+```{r, message=F, warning=F, fig.height=6, fig.width=7}
+# plot
+ggplot( populism.grid.longer, aes( x = response, y = switch.prob, color = issues)) +
+  facet_wrap(~issues, ncol = 1) +
+  geom_smooth(size = 0.7, method = "loess", method.args = list(degree = 1), se= F)  +
+  xlab("Response of voters on 1 to 5 scale") +
+  ylab("Probability of being swing voter ") +
+  labs(title = "Populism variables model prediction of being a swing voter",
+      subtitle = "For each response scale in populism variables",
+      caption = "Figure 7: A general pattern of model prediction done on a grid.",
+      color = "Populism Variables") +
+  theme(axis.text=element_text(size=8, face = "bold"),
+    plot.title = element_text(color="black", size=12, face="bold"),
+    plot.subtitle = element_text(color="black", size=10),
+    axis.title=element_text(size=10, face = "bold"),
+    plot.caption = element_text(hjust = 0.5, size = 8)) +
+  scale_color_manual(values = cb_palette) +
+  theme(legend.position = "none")
+```
+:- The model predicts a 0.2114 probability (on average) for non-swing voters and 0.2320 probability (on average) for being a swing voter. 
+This small difference in the probability values shows that the model has very weak explanatory power. Still we tried to capture an average pattern of this model for each variables, which contributed in predicting a swing voter. This is shown in figure 7 below.  
+y
+
+### model with populism variable 
+swing.weight.logit.pop1 = glm(response.variable ~ POP_1 + POP_2 + POP_3, 
+                              family = quasibinomial, 
+                              weights = weight_DFP, 
+                              data = DFP.populism)
+                              
+This plot also only captures the general trend with populism variables but it don't clearly shows what affect more being a swing voter. This is also not sure accurate model and hence, shouldn't be used for any predictive purposes. As explained above,this model as well do not have much explanatory power but it shows a general trend that those who support `pop_1` and `pop_2` variable and opposes `pop_3` variable has higher chances of being a swing voter than the rest of the voters, conversely, it can also be said that those voters who strongly oppose `pop_1` and `pop_2` variables and strongly support `pop_3` variables have slightly higher chance of being non-swing voters.  
+
+After exploring these model separately, we combined the both the model and tried to access the explanatory power of a model based on both `issue` and `populism` variables. In this, model as well, we didn't use interaction between any of the variables. The outcome of the model is as follows:   
+:- On calculating the accuracy of prediction with direct classification as `swing` and `non-swing` voters, the model gives around 81 percent of accuracy, which might be 1 percent better than the other two models but this accuracy is deceiving as this model could only classify a very-limited voters correctly as swing-voters.  
+:- then we tried to assess the difference in Probabilities of being a swing voter and being a non-swing voter by averaging the fitted values in two original labels of being swing and non-swing voters. The gap between the average probability of being a swing voter and a non-swing voter widened in this model a bit.   
+:- The model predicts a 0.20 probability (on average) for non-swing voters and 0.24 probability (on average) for being a swing voter.   
+though the difference has widened between the average probability of swing and non-swing voters but this model as well do not have good explanatory power. A tabular comparison is shown below for all three model for their average probability values of predicting a voter to we swing and non-swing voters.
+
+```{r}
+# data preparation
+response.variable = rep(1, nrow(complete.DFP))
+#response.variable[swing.voter] = 1
+response.variable[loyal.demeocrat] = 0
+response.variable[loyal.republican] = 0
+# add column to data frame
+complete.DFP$response.variable = response.variable
+# drop all NAs
+complete.DFP = drop_na(complete.DFP)
+
+
+```
+
+### complete model with issue variable and populism variable
+complete.swing.weight.logit.pop = glm(response.variable ~ POP_1 + POP_2 + POP_3 + M4A + GREENJOB + GUNS + ICE + MARLEG + WEALTH , 
+                              family = quasibinomial, 
+                              weights = weight_DFP, 
+                              data = complete.DFP)
+
+```{r}
+
+# model fitting
+complete.swing.weight.logit.pop = glm(response.variable ~ POP_1 + POP_2 + POP_3 + M4A + GREENJOB + GUNS + ICE + MARLEG + WEALTH , 
+                              family = quasibinomial, 
+                              weights = weight_DFP, 
+                              data = complete.DFP)
+
+# display(complete.swing.weight.logit.pop)
+
+
+# performance check of model 
+model.check = complete.DFP
+model.pred.response  = predict(complete.swing.weight.logit.pop, newdata = model.check, type = "response")
+complete.model.pred.pop.df = data.frame(model.check, pred.response = as.vector(model.pred.response))
+model.pred.bn = ifelse(model.pred.response >= 0.5, 1, 0)
+complete.model.pred.pop.df = data.frame(complete.model.pred.pop.df, prediction = as.vector(model.pred.bn))
+
+# model performance 
+model.performance = ifelse(complete.model.pred.pop.df$response.variable == complete.model.pred.pop.df$prediction, 1, 0)
+complete.model.pred.pop.df$model.performance = model.performance
+
+# accuracy 
+# (sum(complete.model.pred.pop.df$model.performance) / nrow(complete.model.pred.pop.df))*100
+
+## difference in swing and non-swing prediction probability 
+prob.diff = complete.model.pred.pop.df[c("response.variable", "pred.response")]
+prob.diff.summary = prob.diff %>% 
+  group_by(response.variable) %>% 
+  summarise(avg.prob = mean(pred.response))
+# prob.diff.summary
+```
+
+\begin{table}[!h]
+\begin{tabular}{|c|c|c|c|}
+\hline
+\multicolumn{1}{|l|}{\textbf{Voter}} & \multicolumn{1}{l|}{\textbf{IssueModel(AvgProb)}} & \multicolumn{1}{l|}{\textbf{PopulismModel(AvgProb)}} & \multicolumn{1}{l|}{\textbf{CompleteModel(AvgProb)}} \\ \hline
+Non-swing                                         & 0.2083                                    & 0.2114                                       & 0.2                                            \\ \hline
+Swing                                         & 0.2296                                    & 0.2320                                       & 0.24                                            \\ \hline
+\end{tabular}
+\end{table}  
+ 
+
+
+I also tried to capture the general trend of this model with each variables. this is shown in figure 8 below:  
+
+```{r}
+# doing prediction on grid data 
+complete.grid = expand.grid( M4A = seq(1,5,1), GREENJOB = seq(1,5,1), ICE = seq(1,5,1), GUNS = seq(1,5,1), WEALTH = seq(1,5,1), MARLEG = seq(1,5,1),POP_1 = seq(1,5,1), POP_2 = seq(1, 5, 1), POP_3 = seq(1, 5, 1))
+
+complete.grid.pred = predict(complete.swing.weight.logit.pop, newdata = complete.grid, type = "response")
+complete.grid = data.frame(complete.grid, switch.prob = as.vector(complete.grid.pred)) 
+
+
+# convert the grid into longer form
+complete.grid.longer = complete.grid %>% 
+  pivot_longer(c("POP_1", "POP_2", "POP_3","M4A", "GREENJOB", "WEALTH", "MARLEG", "ICE", "GUNS"), names_to = "issues", values_to = "response")
+
+# proportion calculation
+complete.grid.longer.proportion = group_by(complete.grid.longer, response, issues) %>%
+  summarise(proportion = mean(switch.prob))
+
+```
+
+
+```{r, warning=F, message=F}
+
+ggplot( complete.grid.longer.proportion, aes( x = response, y = proportion, color = issues)) +
+  geom_smooth(size = 0.5,method = "lm", se= F)  + 
+  facet_wrap(~issues) +
+  xlab("Response of voters on 1 to 5 scale") + 
+  ylab("Probability of being swing voter ") +
+  labs(title = "Complete model prediction of being a swing voter",
+      subtitle = "For each response scale in all variables",
+      caption = "Figure 8: A general pattern of model prediction done on a grid.",
+      color = "Variables") +
+  theme(axis.text=element_text(size=8, face = "bold"),
+    plot.title = element_text(color="black", size=12, face="bold"),
+    plot.subtitle = element_text(color="black", size=10),
+    axis.title=element_text(size=10, face = "bold"),
+    plot.caption = element_text(hjust = 0.5, size = 8)) + 
+  scale_color_manual(values = cb_palette) +
+  theme(legend.position = "none")
+
+```
+
+The plot in figure 8 shows the general trend of being a swing voter for each explanatory variables. All these patterns are more or less consistent with the trend from the individual models that we made. Still, if we have to guess that what factors drives being a swing voters, then we can say that overall, any single variable doesn't give much information about being a swing voter but a combination of factors like, a voter who opposes `greenjob`, `guns`, `pop_3` and at the same time strongly supports `ice`, `marleg`, `pop_1` and `pop_2` are more likely to be a swing voter and vice-versa for non-swing voters. But we have already concluded that this model have weak explanatory power, so it doesn't sufficiently predict being a swing or non-swing voter. If we compare the point difference in prediction probability, it is only 4% as shown in the table 1, which is not enough to conclusively predict swing or non-swing voters.  
+
+If we compare the three models, first, model based only on issue variables, second, model based only on populism variables, and third, model based on both populism and issue variables, the third model i.e. the model based on both populism and issue variable is the best model. This model gives the highest difference between the average probabilities of swing voters and non-swing voters as shown in table 1 above. Other models don't not capture the difference.
