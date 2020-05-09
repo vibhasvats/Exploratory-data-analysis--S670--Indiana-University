@@ -1,0 +1,99 @@
+---
+title: "PS4: Movies Ratings"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,warning = FALSE, message = FALSE)
+```
+
+```{r}
+# Loading the data set.
+suppressMessages(library(readr))
+suppressMessages(library(tidyr))
+rating = read_tsv("Data/title.ratings.tsv", na = "\\N", quote = '')
+basic = read_tsv("Data/title.basics.tsv", na = "\\N", quote = '')
+everything_merged = merge(rating, basic, by = "tconst")
+movies_rating = everything_merged[everything_merged$titleType == "movie",]
+movies_rating = movies_rating[c("averageRating", "startYear", "runtimeMinutes", "numVotes")]
+movies_rating = movies_rating %>% drop_na()
+```
+
+**Data description:** Our response variable 'Average rating' which do not have any skewness or gross outliers. We have removed all the NA values from the whole data set. Our response variable does not need any tranformation. The explanatory variable, startYears is left skewed because of less amount of data predominantly before 1915. We can choose to eliminate some of those years and cut the tail, so, we are not considering any data before 1915. In, our other explanatory variable, runtimeMinutes, there are some gross outliers with some of values close to 50000 minutes. So, to minimize the effect of outliers in our exploration, we have decided to drop all movies which are beyong the length of 300 minutes. The density plot of runtimeMinutes is right skewed (and data is also positive), so we can log transform the data to get a more uniform values. We have used, log10 transformation in our data set for runtimeMinutes variable.  
+
+```{r}
+# removing all those movies which has runmintues more than 300
+movies_without_outliers = movies_rating[movies_rating$runtimeMinutes <300,]
+movies_without_outliers = movies_without_outliers[movies_without_outliers$startYear >=1915,]
+
+# Log transformation on runtimeMinutes
+movies_without_outliers$logruntimeMinutes = log10(movies_without_outliers$runtimeMinutes)
+```
+
+**Data Exploration:** We started by cutting on startYear, we tried a number of cut values, which assigns equal number of data points in each cut. We fitted this model with 'LM' and 'RLM' for initial observations. There are significant variations in slopes of the fitted models, especially we observed that the trend for averageRating with runtimeMinutes (unweighted plot) were increasing till year 2001 but after that the trend was moslty decreasing as the runtimeMinutes increased. Initially, we observed that the startYear variable was left skewed, so cutting for equal number of data points on each equal cuts will not make much sense, rather, it would make more sense to cut the data by specific year, like cut at the point where the trend starts to change. We tried cutting at year 2001 and we saw a significant change in trend around year 2001 as was evident before. We have chosen to cut by year rather than runtimeMinutes, because observing the trend over the years becomes easy and more plausible.  
+
+There is an important variable numVotes which tells the number of people who rated the movie. For each movie, there is a significant difference in number of votes and that affected the average rating of a movie. For those movies which have got lesser votes even a single new vote would significantly change the average rating but that would not be the case with movies that have larger number of votes. So, we need to account for the impact of number of votes on average rating before fitting our model.  
+
+With our log tranformed runtimeMinutes, accounting for number of votes and by cutting at year 2001, we tried to fit linear model and observed the pattern, which is shown in the Fig below.
+
+```{r}
+suppressMessages(library(tidyverse))
+suppressMessages(library(MASS))
+
+cut_year = rep(NA, nrow(movies_without_outliers))
+cut_year[movies_without_outliers$startYear <= 2001] = "Before 2001"
+cut_year[movies_without_outliers$startYear > 2001] = "After 2001"
+movies_without_outliers2= data.frame(movies_without_outliers, cut_year)
+movies_without_outliers2$cut_year = factor(movies_without_outliers2$cut_year, 
+                                           levels = c("Before 2001", "After 2001"))
+
+ggplot(movies_without_outliers2, aes(x = logruntimeMinutes, y = averageRating)) + 
+  geom_point(size = 0.5) + 
+  geom_smooth(method = "lm", se = F) + # Unweighted
+  geom_smooth(aes(weight = numVotes), method = "lm", se = F, color = "orange") + # weighted
+  facet_wrap(~ cut_year) + 
+     labs(title = "Weighted and unweighted model fitting", 
+       subtitle = "linear model") + 
+  xlab("Log transformed runtime minutes") + 
+  ylab("Average rating of the movies")
+```
+
+The blue line represents the unweighted linear model and the orange line is drawn by taking into consideration the impact of the numVotes. In case of the unweighted linear model, as the runtime minutes increases we can see an upward trend in the ratings before the year 2001 but that trend changes after the year 2001. After accounting for the impact of numVotes on the average rating, we observe a similar trend in the average rating before and after the year 2001. Since, the slope of both the lines seems to be almost similar, it suggests that we can fit an additive model on the data.  
+  
+We also tried fitting non-linear models, but the results were not satisfactory.  
+**Model Fitting** : We have fitted a GAM model by smoothing the logruntime minutes. 
+
+```{r}
+suppressMessages(library(mgcv))
+suppressMessages(library(broom))
+movies.gam = gam(averageRating ~ startYear + 
+                   s(logruntimeMinutes), weights = numVotes , 
+                 data = movies_without_outliers)
+movies.gam.df = augment(movies.gam)
+```
+
+## raster-and-contour
+To make raster-and-contour plot, we need to make a grid, we have separated startYear sequence by 1 so that we can account for each year and  for logruntimeMinutes, we have increased the sequence by 0.001, to account for large set of datapoints. The raster-and-contour plot is below  
+
+```{r}
+movies.grid = expand.grid(startYear = seq(1915, 2020, 1), logruntimeMinutes = seq(0, 2.476, 0.001))
+movies.predict = predict(movies.gam, newdata = movies.grid)
+movies.plot.df = data.frame(movies.grid, fit = as.vector(movies.predict))
+
+# raster-and-contour
+ggplot(movies.plot.df, aes(x = startYear, y = logruntimeMinutes , z = fit, fill = fit)) + 
+  geom_raster() + 
+  geom_contour( color = "black" ) + 
+  scale_fill_distiller(palette = "RdYlBu") + 
+  labs(title = "Log runtime minutes vs. start year of movies", 
+       subtitle = " fitted value of average rating is used as fill") + 
+  ylab("Log transformed runtime minutes") + 
+  xlab("Start year of the movie")
+```
+
+As we can see in the contour plot above, there are three dense areas, out of the three areas, two account for the higher rated movies and one account for lower rated movies. In general, movies having runtimeMinutes less than 10 has seen gradual decrease in rating from 1915 to 2020, which forms a concentrated region in later years. As the runtimeMinutes increases, we can see the rapid change in rating, which is highly concentrated around the moveies of 10 minutes of length. For movies beyond this region, the changes are very gradual and it can be seen that they have recieved average rating mostly. The third concentrated region is formed for movies beyond runtimeMinutes of above 100, in early years, those movies were higly rated but the trend has been decreasing slowly in recent years as can be seen in the plot above.  
+
+# Answer to the substantive question: 
+After accounting for the release year of the movies, the relationship between the average rating and runtime minutes is not monotonically increasing rather, for different period of times, the relaionship shows different trends. For early years, before 1950s, there are two major range of runtime minutes where movies got high rating, but in between those high concentrated area, other movies have got medium or average rating. Even in the present time, those are the only regions of runtime minutes movies which gets relatively higher rating as compared to the regions lying in between them. So, it would not be wrong to say that, if we only consider movies which are larger than 20 minutes of length and beyond, as the run time minutes increases ( up to 300 minutes only), the moves get relatively higher rating, but this statement would not be applicable either on movies beyong 300 mintues or movies below 20 minutes of length. 
+
+There is another interesting information which could be studied from the contour plot above, it shows that after account for number of votes for each movies, if we go horizontally along the year for a particular length of movies, the overall trend has been decreasing i.e. for a particular length of movie, from 1915 to 2020, the trend has been slowly decreasing. The rate of decrease for all length of movies has not remained similar, but the overall trend is going down.

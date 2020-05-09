@@ -1,0 +1,253 @@
+---
+title: "Ansers_ps_4"
+author: "vkvats"
+date: "2/20/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readr)
+library(tidyr)
+rating = read_tsv("Data/title.ratings.tsv", na = "\\N", quote = '')
+basic = read_tsv("Data/title.basics.tsv", na = "\\N", quote = '')
+everything_merged = merge(rating, basic, by = "tconst")
+movies_rating = everything_merged[everything_merged$titleType == "movie",]
+movies_rating = movies_rating[c("averageRating", "startYear", "runtimeMinutes", "numVotes")]
+movies_rating = movies_rating %>% drop_na()
+```
+
+# question A 
+Do you need any transformation?
+- To answer this question we can look at the density plot of all variables
+- it can be checked one by one or all at once with ggplairs() of ggally library
+
+```{r}
+library(GGally)
+library(tidyverse)
+ggpairs(movies_rating, 1:3)
+```
+- our response variable 'Average rating' do not need any tranformation,
+- start years data is left skewed because of less amount of data in those years, we can choose to eliminate some of those years and cut the tail or keep the whole data.
+- There are some gross outliers in the run minutes, and the density plots are not even visible with these run minutes data. So first things to do would be remove the outliers from the data and try to see the density plot of 'runminutes' variable.
+
+- Removing the outliers, choosing a values of less the 500 minutes movies for out model. there are very scarse data for more than 500 minutes so rather we should foucs on the areas which has more data.
+
+```{r}
+# removing all those movies which has runmintues more than 300
+movies_without_outliers = movies_rating[movies_rating$runtimeMinutes <300,]
+movies_without_outliers = movies_without_outliers[movies_without_outliers$startYear >=1915,]
+# runmintures density curve.
+ggplot(movies_without_outliers, aes(x = runtimeMinutes)) + geom_density()
+ggplot(movies_without_outliers, aes(x = log10(runtimeMinutes))) + geom_density()
+```
+- now we are able to see distribution pattern in runminutes variables. the data is positive and  right skewed so, we can think about log transformation.
+- after transforming the data, it is more balanced now. 
+- so we would transform the data of runtimeMinutes
+
+```{r}
+movies_without_outliers$logruntimeMinutes = log10(movies_without_outliers$runtimeMinutes)
+```
+
+
+# qustion B
+- Should you fit a linear model or something curved?
+
+- to decide which model to fit, first we need to find that out of all these three variables which variable should be used for cutting.
+- so to check this first we can start with cutting on startyear variable.
+
+## considering number of votes
+- the average rating taken by taking the average of all rating given to particular movie, this creates an imbalance that some movie get more rating than other movies, to study the effect of number of voting, i will take in account the number of votes given to each movie.
+
+## conditioned on startYear
+- We can try differenc number of cuts to see if the fitted variable is making any sensense of not.
+
+```{r}
+library(MASS)
+library(arm) # for fitting rlm.
+
+ggplot(movies_without_outliers, aes(x = logruntimeMinutes, y = averageRating)) + 
+  geom_point(size = 0.5) + 
+  geom_smooth(method = "rlm", method.args = list(psi = psi.bisquare), color = "orange") + 
+  geom_smooth(method = "lm") + 
+  facet_wrap(~ cut_number(startYear, n = 8), ncol = 3) + 
+  labs(title = " LM and RLM unweighted on logruntimeMinutes")
+```
+
+- there are significant variation in slopes of the fitted model, so its is not making much of sense, we can try something else like cutting by specific startyear.
+- there is a hint of one trend that till 2001, the trend is generally increasing, and then it starts to tend downwards. we can explore that angle by cutting at year 2001 and distinguish between the trend.
+- we fitted two models, "lm" and "rlm", but booth seems to have same slope ( not much of difference), so perhaps once we have removed the movies having runminutes more than 300, we dont need to fit 'RLM' for the rest of the data.
+- we observed that the startyear variable was left skewed, so cutting for equal number of data points on each equal sets will not make any sense, 
+- It would make more sense to cut the data by specific year, like cut at the point where the trend starts to change, and then see all the data point in those models.
+
+```{r}
+ggplot(movies_without_outliers, aes(x = logruntimeMinutes, y = averageRating)) + 
+  geom_point(size = 0.5)+ 
+  geom_smooth(method = "rlm", method.args = list(psi = psi.bisquare), color = "orange") + 
+  geom_smooth(method = "lm") +
+  facet_wrap(~ cut(startYear, c(0,2001,2020)),ncol = 2) + 
+  labs(title = "unweighted plot with log transformed runtime")
+#summary(movies_without_outliers$startYear)
+```
+- i tried the cuts applied on different quartile values of year.which gives a general trend that, before the year 2001, there is a general increasing trend the then there is decreasing trend of average rating with respect to runtimeminutes.
+- then i decided to cut at the year, from where the general trend was changing. but still this doesn't account the number of votes that were given to find the average of each movie rating. lets consider the number of votes.
+
+### weight by number of votes.
+
+- fitting LM and RLM method weighted by number of votes.
+
+```{r}
+ ggplot(movies_without_outliers, aes(x = logruntimeMinutes, y = averageRating)) + 
+  geom_point(size = 0.5) + 
+  geom_smooth(aes(weight = numVotes), method = "rlm",method.args = list(psi = psi.bisquare), se = F) + # weighted
+  geom_smooth(aes(weight = numVotes), method = "lm", se = F, color = "green") + # weighted
+  facet_wrap(~ cut(startYear, c(0, 2001, 2020)),ncol = 1) 
+```
+
+- There seems to be some gross outliers with smaller run minutes time. Those outliers seems to affect the model. We can drop those movies which has less than 10 mins of run time, on log scale it would be equal to dropping all those values which lie below 1, since we have taken log10 transformation.
+
+```{r}
+# removing all those movies which are below 1 on log10 scale.
+#movies_without_outliers = movies_without_outliers[movies_without_outliers$logruntimeMinutes >=1,]
+
+# again plotting the above plot
+ ggplot(movies_without_outliers, aes(x = logruntimeMinutes, y = averageRating)) + 
+  geom_point(size = 0.5) + 
+  geom_smooth(aes(weight = numVotes), method = "rlm",method.args = list(psi = psi.bisquare), se = F) + # weighted
+  geom_smooth(aes(weight = numVotes), method = "lm", se = F, color = "green") + # weighted
+  geom_smooth(aes(weight = numVotes), method.args = list(degree = 1), se = F, color = "orange") + # wighted
+  facet_wrap(~ cut(startYear, c(0, 2001, 2020)),ncol = 1)
+```
+
+## fitting LM
+
+```{r}
+movies.lm = lm(averageRating ~ logruntimeMinutes, data = movies_without_outliers, weights = numVotes)
+library(broom)
+movies.lm.df = augment(movies.lm)
+```
+
+## LM residuals plot
+
+```{r}
+ggplot(movies.lm.df, aes(x = logruntimeMinutes, y = .resid)) + 
+  geom_point() +
+  geom_smooth(aes(weight = X.weights.), method.args = list(degree = 1), se = F, color = "orange") + 
+  labs(title = "LM residuals")
+```
+
+## fitting rlm 
+
+```{r}
+movies.rlm = rlm(averageRating ~ logruntimeMinutes, data = movies_without_outliers, weights = numVotes, psi = psi.bisquare)
+movies.rlm.df = augment(movies.rlm)
+
+#plotting residuals
+ggplot(movies.rlm.df, aes(x = logruntimeMinutes, y = .resid))  + 
+  geom_point() +
+  geom_smooth(aes(weight = X.weights.), method.args = list(degree = 1), se = F, color = "orange") + 
+  labs(title = "RLM residuals")
+```
+
+## GAM 
+
+```{r}
+library(mgcv)
+movies.gam = gam(averageRating ~ startYear + s(logruntimeMinutes), weights = numVotes , data = movies_without_outliers)
+movies.gam.df = augment(movies.gam)
+```
+
+## residual plot of GAM
+```{r}
+ggplot(movies.gam.df, aes(x = logruntimeMinutes, y = .resid))  + 
+  geom_point() +
+  geom_smooth(aes(weight = X.weights.), method.args = list(degree = 1), se = F, color = "orange") + 
+  labs(title = "GAM residuals")
+```
+
+the GAM model seems to fit best out the the three models we tried. The residuals is not showing any kind of pattern, towards the end of plot, the smoother seems to  be chaning very quickly, which might be because of some highly voted outliers.
+
+# contour and raster plot 
+
+```{r}
+summary(movies_without_outliers)
+```
+
+Making a grid as per the data 
+
+```{r}
+movies.grid = expand.grid(startYear = seq(1915, 2020, 1), logruntimeMinutes = seq(0, 2.476, 0.001))
+movies.predict = predict(movies.gam, newdata = movies.grid)
+movies.plot.df = data.frame(movies.grid, fit = as.vector(movies.predict))
+```
+
+making raster and contour plot
+
+
+```{r}
+ggplot(movies.plot.df, aes(x = startYear, y = logruntimeMinutes , z = fit, fill = fit)) + 
+  geom_raster() + 
+  geom_contour( color = "black" ) + 
+  scale_fill_distiller(palette = "RdYlBu")
+```
+
+
+
+
+
+
+
+## cutting the runtime minutes
+
+```{r}
+high_rating = rep(NA, nrow(movies_without_outliers))
+high_rating[movies_without_outliers$averageRating >=8] = "high"
+high_rating[movies_without_outliers$averageRating < 8] = "low"
+movies_without_outliers2= data.frame(movies_without_outliers, high_rating)
+```
+
+```{r}
+ ggplot(movies_without_outliers2, aes(x = logruntimeMinutes, y = averageRating, group = high_rating, color = high_rating)) + 
+  geom_point(size = 0.5) + 
+  #geom_smooth(method = "lm", se = F, color = "orange") + # unweighted
+  geom_smooth(aes(weight = numVotes), method = "rlm",method.args = list(psi = psi.bisquare), se = F, color = "black") + # weighted
+  #geom_smooth(aes(weight = numVotes), method = "lm", se = F, color = "orange") + # weighted
+  facet_wrap(~ cut(startYear, c(1893, 2001, 2020)),ncol = 2) 
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
