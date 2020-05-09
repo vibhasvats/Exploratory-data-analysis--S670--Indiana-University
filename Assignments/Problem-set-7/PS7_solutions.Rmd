@@ -1,0 +1,118 @@
+---
+title: "Problem Set 7: 2016 US Election Results"
+author: "Vibhas Vats"
+date: "4/14/2020"
+output: pdf_document
+classoption: landscape
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(tidyverse)
+library(maps)
+library(gridExtra)
+library(ggthemes)
+library(socviz)
+```
+
+
+
+```{r}
+# election data
+county = read.table("county_data.txt", header = T)
+county.data = county[c("id", "name", "state", "pop_dens", "pct_black", "census_region","winner", "partywinner16", "partywinner12", "flipped" )]
+# names(county)
+
+# merging with us states data 
+us_states = map_data("state")
+county_map$id = as.numeric(county_map$id)
+# joining with county data 
+county.election.df = left_join(county_map, county.data, by = "id")
+county.election.df = drop_na(county.election.df)
+```
+
+
+```{r, fig.height=10, fig.width=16}
+# map
+gg = ggplot(county.election.df,aes(x = long, y = lat, fill = partywinner16, group = group))+
+  geom_polygon(color = "gray90", size = 0.05) + 
+  coord_equal()+
+  scale_fill_manual(values = c("dodgerblue3", "indianred3"))
+
+gg + labs(title = "2016 Presidential Election Results - USA", 
+          fill = "Winning Party", 
+          subtitle = "The map shows county-wise result for two parties") +
+    theme_map() +
+    guides(fill = guide_legend(nrow = 1)) + 
+    theme(legend.position = "bottom") + 
+    theme(plot.title = element_text(color="black", size=16, face="bold"),
+    plot.subtitle = element_text(color="black", size=11))
+```
+
+
+
+```{r, fig.height=10, fig.width=16, include=FALSE}
+# swing counties 
+# switcher = rep(NA, nrow(county.election.df))
+# to.demo = (county.election.df$partywinner12 != "Democrat" & county.election.df$partywinner16 == "Democrat")
+# to.repub = (county.election.df$partywinner12 != "Republican" & county.election.df$partywinner16 == "Republican")
+# loyal.demo = (county.election.df$partywinner12 == "Democrat" & county.election.df$partywinner16 == "Democrat")
+# loyal.repub = (county.election.df$partywinner12 == "Republican" & county.election.df$partywinner16 == "Republican")
+# 
+# switcher[to.repub] = "To Republicans"
+# switcher[to.demo] = "To Democrats"
+# switcher[loyal.demo] = "Loyal Democrats"
+# switcher[loyal.repub] = "Loyal Republicans"
+# 
+# county.election.df$switcher = switcher
+# county.election.df$switcher = factor(county.election.df$switcher, labels = c("Loyal Republicans", "Loyal Democrats", "To Democrats", "To Republicans"))
+
+switcher = rep("Loyalists", nrow(county.election.df))
+to.demo = (county.election.df$partywinner12 != "Democrat" & county.election.df$partywinner16 == "Democrat")
+to.repub = (county.election.df$partywinner12 != "Republican" & county.election.df$partywinner16 == "Republican")
+
+switcher[to.repub] = "To Republicans"
+switcher[to.demo] = "To Democrats"
+
+county.election.df$switcher = switcher
+county.election.df$switcher = factor(county.election.df$switcher, labels = c("Loyalists", "To Democrats", "To Republicans"))
+
+gg = ggplot(county.election.df,aes(x = long, y = lat, fill = switcher, group = group))+
+  geom_polygon(color = "gray90", size = 0.05) + 
+  coord_equal()+
+  scale_fill_manual(values = c("Gray", "dodgerblue3", "indianred3"))
+
+gg + labs(title = "2016 Presidential Election Swing Counties", 
+          fill = "Swing counties", 
+          subtitle = "The map shows county-wise result for two parties") +
+    theme_map() +
+    guides(fill = guide_legend(nrow = 1)) + 
+    theme(legend.position = "bottom") + 
+    theme(plot.title = element_text(color="black", size=16, face="bold"),
+    plot.subtitle = element_text(color="black", size=11))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
