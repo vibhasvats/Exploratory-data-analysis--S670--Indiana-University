@@ -1,0 +1,203 @@
+  ---
+title: "PS5_Solutions"
+author: "vkvats"
+date: "3/6/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(NHANES)
+library(tidyverse)
+cb_palette = c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+```
+
+```{r}
+bmi = NHANES[c("BMI", "Age","Height")]
+bmi = transform(bmi, Height= bmi$Height/100) # converting height to meters
+bmi = drop_na(bmi[bmi$Age <=17,])
+```
+
+## exploring the data 
+
+```{r}
+summary(bmi)
+```
+
+```{r}
+library(GGally)
+ggpairs(bmi)
+
+```
+
+- the BMI data is right skewed, and it is also a positive data, so we might want to consider transforming the data with log10.
+
+```{r}
+# Log tranforming BMI 
+bmi.log =  data.frame(bmi, bmi.log = log10(bmi$BMI))
+ggplot(bmi.log, aes(x = Height, y = bmi.log)) + 
+  geom_point() + 
+  geom_smooth(method = "loess",se = F) + 
+  labs(title = "with log transformed BMI")+ 
+  geom_abline( intercept = 7, slope = 15, color = "blue") + 
+  geom_abline( intercept = -8, slope = 15, color = "blue")
+```
+
+- the log transformed data shows improvement. so we will proceed with the log transformed data from here onwards
+- we have two explanatory variables, Height, and Age, where, heigh and age are highly correlated as is evident from the ggpair plot.
+
+```{r}
+ggplot(bmi, aes(x = Height, y = BMI)) + 
+  geom_point() + 
+  geom_smooth(method = "loess",se = F) + 
+  labs(title = "without log transformation")
+```
+
+## faceting by age
+
+```{r}
+ggplot(bmi.log, aes(x = Height, y = bmi.log)) + 
+  geom_point() + 
+  geom_smooth(method.args = list(degree = 1)) + 
+  geom_smooth(method = "lm", se = F, color = "orange") + 
+  facet_wrap(~ cut_number(Age, n = 7), scales = "free")
+```
+
+- after trying for different number of faceting, there seems to emerge a pattern, a pattern which divides the data into three different categories.  
+1. age group of 2 to 4 (included): the changed are negligible, the LM line is almost flat.
+2. age group from greater than 4 till 13: the bmi seems to increase monotonically in this region.
+3. age group from greater than 13 till 17: the bmi seems to flat again, the slope of the fitted line is almost zero.
+so, based on this observation we can divide the age into three catergories or cuts, and fit piecwise model for each region.
+
+```{r}
+ggplot(bmi.log, aes(x = Height, y = bmi.log)) + 
+  geom_point() + 
+  geom_smooth(method = "loess", method.args = list(degree = 1), se = F) + 
+  geom_smooth(method = "lm", se = F, color = "orange") + 
+  facet_wrap(~ cut(Age, c(0,4,13,17)), scale = "free") 
+```
+
+- There is clear pattern here which suggests that we either fit a piecewise function or fit a loess model
+
+```{r}
+age.cat = cut(bmi.log$Age, c(1,4,13,17))
+levels(age.cat) = c("Todler", "Rapid growth age", "Teenage")
+bmi.log$age.cat = age.cat
+```
+
+
+## plot 
+
+```{r}
+ggplot(bmi.log, aes(x = Height, y = bmi.log, group = age.cat, color = age.cat)) + 
+  geom_point( size = 0.5, alpha = 0.5) + 
+  geom_smooth(method = "lm", se = F) + 
+  scale_color_manual(values = cb_palette)
+```
+
+## fit the model 
+
+- we have two choices to fitting a model
+1. a piece wise linear model, divided into three regions of age groups 2 to 4, 4 to 13 and 13 to 17.
+2. fit a loess model, which is based on local fitting.
+
+none the less we would fit both model and then analysie both results.
+
+### fitting loess model
+
+```{r}
+# sd ration for two variables.
+sd(bmi.log$Height) / sd(bmi.log$Age)
+```
+
+
+
+```{r}
+ggplot(bmi.log, aes(x = Height, y = Age)) + 
+  geom_point() + 
+  geom_smooth(method = "loess",se = F) + 
+  labs(title = "with log transformed BMI")+ 
+  geom_abline( intercept = -12, slope = 17.5, color = "orange") + 
+  geom_abline( intercept = -18, slope = 17.5, color = "blue")
+```
+
+
+
+```{r}
+bmi.lo = loess(bmi.log ~ Age + Height, data = bmi.log, span =0.75)
+library(broom)
+bmi.lo.df = augment(bmi.lo)
+```
+
+- looking at the residuals
+
+```{r}
+ggplot(bmi.lo.df, aes(x = Height, y = .resid)) + 
+  geom_point() + 
+  geom_smooth(method = "loess", method.args = list(degree = 1)) 
+
+ggplot(bmi.lo.df, aes(sample = .resid)) + stat_qq()
+```
+
+- The residual is not showing any trend or pattern, it seems like the model is performing well. but there is one caveat, we have 2200 observation and we tend to not use loess for data points more than 1000
+
+## contour plot for loess fitted model
+
+```{r}
+bmi.grid = expand.grid(Age = seq(2,17,1), Height = seq(0.836, 1.933, 0.001))
+bmi.predict = predict(bmi.lo, newdata = bmi.grid) 
+bmi.predict.df = data.frame(bmi.grid, fit = as.vector(bmi.predict)) 
+
+# trimming
+bmi.predict.df  =filter(bmi.predict.df, (Age <= 17.5 * Height -12) & (Age >= 17.5 * Height -18))
+```
+
+```{r}
+ggplot(bmi.predict.df, aes( x = Age, y = Height, z = fit)) + 
+   geom_contour(aes(color = ..level..), binwidth = 0.005)
+```
+
+### fitting piecewise LM model
+
+```{r}
+pieces = function(x){
+  return( (x> 4)*(x-13)*(x < 13) )
+}
+
+# fit lm
+bmi.lm = lm(bmi.log ~ pieces(Age) + Height, data = bmi.log)
+bmi.lm.df = augment(bmi.lm)
+```
+
+# residuals plot for LM
+```{r}
+ggplot(bmi.lm.df, aes(x = Height, y = .resid)) + 
+  geom_point() + 
+  geom_smooth(method = "loess", method.args  = list(degree = 1))
+
+ggplot(bmi.lm.df, aes(sample = .resid)) + stat_qq()
+```
+in this fit as well, the model seems to fit will, there is not any pattern as such.
+- if the two models are compared from the residual plot, the loess model seems to fit better.
+
+## contour plot for LM fitted model
+
+```{r}
+bmi.grid2 = expand.grid(Age = seq(2,17,1), Height = seq(0.836, 1.933, 0.001))
+bmi.predict2 = predict(bmi.lm, newdata = bmi.grid2)
+bmi.predict2.df = data.frame(bmi.grid2, fit = as.vector(bmi.predict2))
+```
+
+```{r}
+ggplot(bmi.predict2.df, aes( x = Height, y = Age, z = fit)) + 
+   geom_contour(aes(color = ..level..), binwidth = 0.001)
+```
+
+
+
+
+
+
+
+
+

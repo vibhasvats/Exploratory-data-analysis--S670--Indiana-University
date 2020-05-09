@@ -1,0 +1,102 @@
+---
+title: "BMI variation with Height and Age"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F)
+library(NHANES)
+library(tidyverse)
+cb_palette = c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+```
+
+### Introduction
+We explore the NHANES data set in the package of the same name, but our exploration is limited to understanding the relationship between BMI, height, and age for the age group of up to 17. BMI is often defined as — weight (in kilograms) divided by height (in meters) squared. We have the height data in centimeter, which we convert to meter for exploring and developing the preliminary understanding of the relation. Our goal is to understand how does average BMI vary with height and age for children 17 and under. The initial exploration shows that the BMI data is positive and right-skewed, so I have used log transformation on the BMI and make it more suitable for the purpose. The age varies between 2 to 17 years and height varies from 0.83 to 1.933 meters.    
+**fitted model code:** $loess(log10(BMI) \sim Age + Height, span = 0.75)$
+
+```{r}
+bmi = NHANES[c("BMI", "Age","Height")]
+bmi = transform(bmi, Height= bmi$Height/100) # converting height to meters
+bmi = drop_na(bmi[bmi$Age <=17,])
+
+# Log tranforming BMI 
+bmi.log =  data.frame(bmi, bmi.log = log10(bmi$BMI))
+
+# age.cat
+Age.cat = cut(bmi.log$Age, c(1,4,13,17))
+bmi.log$Age.cat = Age.cat
+```
+
+```{r, fig.height= 6, fig.width=7}
+ggplot(bmi.log, aes(x = Height, y = bmi.log)) + 
+  geom_point(size = 0.7, alpha = 0.7) + 
+  geom_smooth(method = "loess", method.args = list(degree = 1), se = F) +
+  facet_wrap(~ Age.cat, scale = "free", labeller = label_both) +
+  labs(title="Figure 1: Log of BMI vs. height for different age groups ",
+       subtitle = "For age group of 2 to 17 years divided into 3 sub-groups", 
+       caption = 'The data is plotted on free scale.') +  
+  xlab("Height in meters") + 
+  ylab("Log of BMI value") +
+  theme(axis.text=element_text(size=10),
+        plot.title = element_text(color="black", size=12, face="bold"),
+        axis.title=element_text(size=10,face="bold"))
+```
+
+```{r,fig.height = 6,fig.width= 7}
+ggplot(bmi.log, aes(x = Height, y = bmi.log, color = Age.cat)) + 
+  geom_point( size = 0.8, alpha = 0.7) + 
+  geom_smooth(method = "loess",span = 0.75, se = F, color = "black") + 
+  scale_color_manual(values = cb_palette) +
+  labs(title="Figure 2: Log of BMI vs. height for different age groups ",
+       subtitle = "For age group of 2 to 17 years divided into 3 sub-groups", 
+       caption = 'Age groups are identified by different colors',
+       color = "Age Categories") +  
+  xlab("Height in meters") + 
+  ylab("Log of BMI value") +
+  theme(axis.text=element_text(size=10),
+        plot.title = element_text(color="black", size=12, face="bold"),
+        axis.title=element_text(size=10,face="bold"))
+```
+
+The plot above fits the loess model on log10 value of BMI with explanatory variable age and height, different ages groups are shown in different colors. A further understanding of the behavior of all three variables can be understood well with the contour plot, which is shown in figure 3.  
+
+```{r}
+#,fig.height = 6,fig.width= 7
+bmi.lo = loess(bmi.log ~ Age + Height, data = bmi.log, span =0.75)
+
+bmi.grid = expand.grid(Age = seq(2,17,1), Height = seq(0.836, 1.933, 0.001))
+bmi.predict = predict(bmi.lo, newdata = bmi.grid)
+bmi.predict.df = data.frame(bmi.grid, fit = as.vector(bmi.predict))
+
+# trimming
+bmi.predict.df  =filter(bmi.predict.df, (Age <= 17.5 * Height -12) & (Age >= 17.5 * Height -18))
+
+ggplot(bmi.predict.df, aes( x = Age, y = Height, z = fit, fill = fit)) + geom_raster()+
+  scale_fill_distiller(palette = "RdYlBu") +
+   geom_contour(binwidth = 0.013, color = "black")+
+  labs(title="Figure 3: Average BMI (log) variation with Age and Height",
+       subtitle = "For age group of 2 to 17 years",
+       fill = "BMI") +  
+  ylab("Height in meters") + 
+  xlab("Age in years") +
+  theme(axis.text=element_text(size=10),
+        plot.title = element_text(color="black", size=12, face="bold"),
+        axis.title=element_text(size=10,face="bold"))
+```
+The initial exploration of data shows that the increase in BMI is negligible till age 4 but then it starts to increase monotonically and which goes till age 13 years. After 13 years till 17 years, the change is BMI value again stagnates. Based on this, we have cut Age at three groups, first from age of 2 to 4 years, then from 4 to 13 years and lastly, from 13 to 17 years, then we have used loess method to fit the data - loess model fits the data locally by taking the average of the neighborhood points. In the first and the last age group, the overall trend is not as strong as in the middle age category. The fitted loess curve is not perfectly straight because of the outliers which pull the curve towards itself, other than this, there is no significant trend between BMI and height for the first and last age category. The overall model can be seen in figure 2, which identifies the different age groups with different colors. Figure 1 shows the model faceted on age. We do not have the data for age below 2, so this model should not be used for below age 2 BMI estimation.  
+As the shown in figure 3, the BMI variation is centering around the age of 5 years which indicates that BMI has actually higher values before 5 years of age and after five years of age. Some of the contour lines which start around 2 years of age extend till 10 years of age. This shows that for some value of BMI the age group varies from around 2 years to more than 10 years. This highlights the problem in using BMI as the measure of body mass that it can be non-specific of the age. BMI shows a rapid increase in age between 5 to 13 years, which is characterized by a number of contours at a smaller distance from each other. After this period of rapid increase, the value of BMI increases very slowly, which can be seen as the increase in gaps between two contours in the red region or around the age of 13 to 17 years.  
+I don't think BMI is a good measure of body mass for children. BMI value of any person can precisely describe the value of height and age of children, which is visible in contour plot where one of the contour starts around the are of 2 years and ends around the age above 10, so given a BMI value, it will be difficult to ascertain the height or age of children. BMI can be misleading as well, especially when a person is athletic or have more bone weight. In both cases, BMI comes higher than expected, so it won't be the correct measure of body mass in such cases as well.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
